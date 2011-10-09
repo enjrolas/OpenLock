@@ -4,6 +4,7 @@ import processing.serial.*;
 Serial myPort;
 String [] cards;
 int a=0;
+String tagString="";
 
 ControlP5 controlP5;
 
@@ -16,6 +17,8 @@ void readCards()
   int num=myPort.read();
   if (num>0)
   {
+    for (int i=0;i<cards.length;i++)
+      controlP5.remove("delete"+i);
     cards=new String[num];
     for (int i=0;i<num;i++)  
     {  
@@ -37,8 +40,7 @@ void setup()
   myPort.read();
   size(800, 800);
   controlP5 = new ControlP5(this);
-  controlP5.addButton("teach",0,500,20,100,20);
-  
+  controlP5.addButton("teach", 0, 500, 20, 100, 20);
 }
 
 void draw()
@@ -50,10 +52,15 @@ void draw()
   fill(255);
   for (int i=0;i<cards.length;i++)
   {
+    if (tagString.equals(cards[i]))
+      fill(0, 255, 0);
+    else
+      fill(255);
     text(cards[i], 20, 20+i*20);
   }
-  while (myPort.available ()>0)
-    print((char)myPort.read());  
+  text("Last card checked :"+tagString, 500, 200);
+  if (myPort.available ()>0)
+    tagString=myPort.readStringUntil(10);
   a++;
 }
 
@@ -79,14 +86,14 @@ void keyPressed()
 
 public void controlEvent(ControlEvent theEvent) {
   println(theEvent.controller().name());
-  if(theEvent.controller().name().equals("teach"))
+  if (theEvent.controller().name().equals("teach"))
   {
     myPort.write('L');
     delay(5000);
     readCards();
   }
-  for(int i=0;i<cards.length;i++)
-    if(theEvent.controller().name().equals("delete"+i))
+  for (int i=0;i<cards.length;i++)
+    if (theEvent.controller().name().equals("delete"+i))
     {
       println("deleting ..."+i);
       myPort.write('R');

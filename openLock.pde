@@ -68,6 +68,8 @@ void setup()
   #ifdef DEBUG
   Serial.println("listening for cards...");
   #endif
+  
+  Serial.print("+");  //all systems go!
 }
 
 void readCards()
@@ -89,13 +91,16 @@ void loop()
   if(mode==WAITING_FOR_CARD)
   {
     if(waitForCard(500))
-    if(checkAllCards())
     {
+      if(checkAllCards())
+    {
+      Serial.println(tagString);
       mode=LOCK_OPEN;
       lockTimer=millis();
       #ifdef DEBUG
         Serial.println("opening lock...");
       #endif
+    }
     }
   }
   if(mode==LOCK_OPEN)
@@ -200,14 +205,21 @@ boolean checkAllCards()
   int i=0;
   while((match==false)&&(i<tagIndex))
   {
-    Serial.print("checking ");
-    Serial.print(i);
-    Serial.print("...  ");
+    #ifdef DEBUG
+      Serial.print("checking ");
+      Serial.print(i);
+      Serial.print("...  ");
+    #endif
+    
     match=checkCard(i);
+
+    #ifdef DEBUG
     if(match)
       Serial.println("it's a match!");
     else
       Serial.println("no poop");
+    #endif  
+     
     i++;
   }
   return match;  
@@ -286,9 +298,12 @@ void printCards()
 {
   char a;
   int i,j;
+  #ifdef DEBUG
   Serial.print("you've stored ");
   Serial.print(tagIndex);
   Serial.println(" cards");
+  #endif
+  Serial.print(tagIndex,BYTE);
   for(i=0;i<tagIndex;i++)
   {
     Serial.print(i);
