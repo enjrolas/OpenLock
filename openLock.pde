@@ -16,11 +16,18 @@
 
 #include <Wire.h>
 #include <SL018.h>
+
+
+//  #define DEBUG 1     //uncomment this line if you want to play with the arduino in debug mode,
+                        //but it'll BREAK the system if you try to use it with the computer-side
+                        //software in debug mode
+
+
 #define NUM_CARDS 50  //total number of authorized cards we'll store
-#define DEBUG 1
 #define CARD_MEMORY_INDEX 2
 
 char cards[50][14];
+unsigned char buffer[5];
 
 SL018 rfid;
 int tagIndex=0;
@@ -46,11 +53,21 @@ void setup()
   Wire.begin();
   Serial.begin(115200);
   pinMode(2,OUTPUT);
-  Serial.println("reading cards from EEPROM...");
+  #ifdef DEBUG
+    Serial.println("reading cards from EEPROM...");
+  #endif
   readCards();
+
+  
+  #ifdef DEBUG
   Serial.println("done!");
+  #endif
+
   mode=WAITING_FOR_CARD;
+
+  #ifdef DEBUG
   Serial.println("listening for cards...");
+  #endif
 }
 
 void readCards()
@@ -108,7 +125,6 @@ void loop()
       if(!checkAllCards())  //only save the card if we don't already have it stored
       {
         saveCard(tagIndex);
-        tagIndex++;
       }
       else
       {
@@ -130,6 +146,27 @@ void loop()
     deleteAllCards();
     mode=WAITING_FOR_CARD;
   }
+  if(mode==DELETE_ONE_CARD)
+  {
+      unsigned long timeout=millis();
+      while((Serial.available()==0)&&(millis()-timeout<500)){}  //wait for the index of the card we should delete   
+      if(millis()-timeout<500)
+      {
+        unsigned char deletionIndex=Serial.read();
+        deleteOneCard(deletionIndex);
+        #ifdef DEBUG
+          Serial.print("Deleting card number");
+          Serial.println(deletionIndex);
+        #endif
+      }
+      else
+      {
+        #ifdef DEBUG
+          Serial.println("hmmm, you never told us what to delete.  Going back to the main loop");
+        #endif
+      }
+      mode=WAITING_FOR_CARD;
+    }
 }
 
 boolean waitForCard(int timeout)
@@ -152,6 +189,8 @@ void interpretCommand()
     mode=PRINT_CARDS;
   if(command=='D')
     mode=DELETE_ALL_CARDS;
+   if(command=='R')
+     mode=DELETE_ONE_CARD;
 }
 
 boolean checkAllCards()
@@ -186,15 +225,13 @@ boolean checkCard(int cardIndex)
 
 void saveCard(int index)
 {
-  int a=0;
+  int a;
   for(a=0;a<14;a++)
   {
-    EEPROM.write(CARD_MEMORY_INDEX+index+a,tagString[a]);    
+    EEPROM.write(CARD_MEMORY_INDEX+index*14+a,tagString[a]);    
     cards[index][a]=tagString[a];
   }
   
-  //update the tag indices, too
-  saveTagIndex();
   #ifdef DEBUG
     Serial.print("saved new card ");
     for(a=0;a<14;a++)
@@ -202,7 +239,32 @@ void saveCard(int index)
     Serial.print(" to index ");
     Serial.println(tagIndex);
   #endif
+  //update the tag indices, too
+  tagIndex++;
+  saveTagIndex();
 
+}
+
+void deleteOneCard(int index)
+{
+  #ifdef DEBUG
+    Serial.print("deleting card ");
+    Serial.println(index);
+  #endif
+  int i;
+  for(i=index;i<tagIndex-1;i++)
+  {
+    for(int j=0;j<14;j++)
+    {
+      cards[i][j]=cards[i+1][j];
+      EEPROM.write(CARD_MEMORY_INDEX+i*14+j,cards[i][j]);
+    }    
+  }
+  tagIndex--;
+  saveTagIndex();
+  #ifdef DEBUG
+    Serial.println("done");
+  #endif
 }
 
 void deleteAllCards()
