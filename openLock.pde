@@ -24,6 +24,20 @@ SL018 rfid;
 int tagIndex=0;
 char * tagString;
 
+unsigned char mode;
+long lockTimer;
+
+char command;
+
+#define UNLOCK_TIME 3000 //time the lock will be open, in milliseconds
+
+#define WAITING_FOR_CARD 0
+#define LOCK_OPEN 1
+#define LEARNING_NEW_CARD 2
+#define PRINT_CARDS 3
+
+
+
 void setup()
 {
   Wire.begin();
@@ -32,11 +46,8 @@ void setup()
   Serial.println("reading cards from EEPROM...");
   readCards();
   Serial.println("done!");
-  tagString="047F8F21E30280";
-  if(checkAllCards())
-    Serial.println("bam!");
-  // prompt for tag
-  Serial.println("Show me your tag");
+  mode=WAITING_FOR_CARD;
+  Serial.println("listening for cards...");
 }
 
 
@@ -50,24 +61,53 @@ void readCards()
 
 void loop()
 {
-  
-  // start seek mode
-  rfid.seekTag();
-  // wait until tag detected
-  while(!rfid.available());
-    
+  if(mode==WAITING_FOR_CARD)
+    waitForCard();
+  if(mode==LOCK_OPEN)
+  {
+    digitalWrite(2,HIGH);
+    if(lockTimer-millis()>UNLOCK_TIME)
+      {
+        mode=WAITING_FOR_CARD;
+        digitalWrite(2,LOW);
+      }
+  }
+}
+
+
+void checkCard()  //checks new card UID against IDs stored in memory
+{
   // print tag id
   tagString=rfid.getTagString();
   if(checkAllCards())
   {
-    Serial.println("It's a match!");
-    digitalWrite(2,HIGH);
-    delay(5000);
-    digitalWrite(2,LOW);
+    mode=LOCK_OPEN;
+    lockTimer=millis();
   }
-  else
-    Serial.println("no joy, buttface");  
-  Serial.println(tagString);
+}
+
+void waitForCard()
+{
+  // start seek mode
+  rfid.seekTag();
+  // loop undlessly until tag detected or we receive a serial command
+  while(!rfid.available()&&(mode==WAITING_FOR_CARD))
+  {
+    if(Serial.available()) //make sure that someone can send us serial data to break the loop
+    {
+      command=Serial.read();
+      interpretCommand();
+    }
+  }
+  checkCard();
+}
+
+void interpretCommand()
+{
+  if(command=='L')
+    mode=LEARNING_NEW_CARD;
+  if(command=='R')
+    mode=PRINT_CARDS;
 }
 
 boolean checkAllCards()
