@@ -16,7 +16,9 @@
 
 #include <Wire.h>
 #include <SL018.h>
-#define numCards 50  //total number of authorized cards we'll store
+#define NUM_CARDS 50  //total number of authorized cards we'll store
+#define DEBUG 1
+#define CARD_MEMORY_INDEX 2
 
 char cards[50][14];
 
@@ -25,7 +27,7 @@ int tagIndex=0;
 char * tagString;
 
 unsigned char mode;
-long lockTimer;
+unsigned long lockTimer;
 
 char command;
 
@@ -33,13 +35,14 @@ char command;
 
 #define WAITING_FOR_CARD 0
 #define LOCK_OPEN 1
-#define LEARNING_NEW_CARD 2
+#define LEARN_NEW_CARD 2
 #define PRINT_CARDS 3
-
-
+#define DELETE_ALL_CARDS 4
+#define DELETE_ONE_CARD 5
 
 void setup()
 {
+
   Wire.begin();
   Serial.begin(115200);
   pinMode(2,OUTPUT);
@@ -50,71 +53,113 @@ void setup()
   Serial.println("listening for cards...");
 }
 
-
 void readCards()
 {
   int i,j;
-  for(i=0;i<numCards;i++)
+  tagIndex=EEPROM.read(0)*256+EEPROM.read(1);
+  for(i=0;i<tagIndex,i<NUM_CARDS;i++)
     for(j=0;j<14;j++)      
-      cards[i][j]=EEPROM.read(i*14+j);
+      cards[i][j]=EEPROM.read(CARD_MEMORY_INDEX+i*14+j);
 }
 
 void loop()
 {
-  if(mode==WAITING_FOR_CARD)
-    waitForCard();
-  if(mode==LOCK_OPEN)
-  {
-    digitalWrite(2,HIGH);
-    if(lockTimer-millis()>UNLOCK_TIME)
-      {
-        mode=WAITING_FOR_CARD;
-        digitalWrite(2,LOW);
-      }
-  }
-}
-
-
-void checkCard()  //checks new card UID against IDs stored in memory
-{
-  // print tag id
-  tagString=rfid.getTagString();
-  if(checkAllCards())
-  {
-    mode=LOCK_OPEN;
-    lockTimer=millis();
-  }
-}
-
-void waitForCard()
-{
-  // start seek mode
-  rfid.seekTag();
-  // loop undlessly until tag detected or we receive a serial command
-  while(!rfid.available()&&(mode==WAITING_FOR_CARD))
-  {
-    if(Serial.available()) //make sure that someone can send us serial data to break the loop
+  if(Serial.available()>0)
     {
       command=Serial.read();
       interpretCommand();
     }
+  if(mode==WAITING_FOR_CARD)
+  {
+    if(waitForCard(500))
+    if(checkAllCards())
+    {
+      mode=LOCK_OPEN;
+      lockTimer=millis();
+      #ifdef DEBUG
+        Serial.println("opening lock...");
+      #endif
+    }
   }
-  checkCard();
+  if(mode==LOCK_OPEN)
+  {
+    digitalWrite(2,HIGH);
+    if((millis()-lockTimer)>UNLOCK_TIME)
+      {
+        #ifdef DEBUG
+        Serial.println("Time's up!  Lock's closing");
+        #endif
+        mode=WAITING_FOR_CARD;
+        digitalWrite(2,LOW);
+      }
+  }
+  if(mode==PRINT_CARDS)
+  {
+    printCards();
+    mode=WAITING_FOR_CARD;
+  }
+  if(mode==LEARN_NEW_CARD)
+  {
+    #ifdef DEBUG
+      Serial.println("I'm going to authorize the next card you show me!");
+    #endif
+    if(waitForCard(5000))
+    {  
+      if(!checkAllCards())  //only save the card if we don't already have it stored
+      {
+        saveCard(tagIndex);
+        tagIndex++;
+      }
+      else
+      {
+        #ifdef DEBUG
+          Serial.println("I already know that card.  I think we should meet new people");
+        #endif
+      }
+    }
+    else
+    {
+      #ifdef DEBUG
+        Serial.println("you didn't show me a card in time.  Try again!");
+      #endif
+    }
+    mode=WAITING_FOR_CARD;
+  }
+  if(mode==DELETE_ALL_CARDS)
+  {
+    deleteAllCards();
+    mode=WAITING_FOR_CARD;
+  }
+}
+
+boolean waitForCard(int timeout)
+{
+  unsigned long waitTimer=millis();
+  // start seek mode
+  rfid.seekTag();
+  // loop until we detect a tag or we timeout
+  while(!rfid.available()&&(millis()-waitTimer<timeout));
+  // print tag id
+  tagString=rfid.getTagString();
+  return rfid.available();
 }
 
 void interpretCommand()
 {
   if(command=='L')
-    mode=LEARNING_NEW_CARD;
-  if(command=='R')
+    mode=LEARN_NEW_CARD;
+  if(command=='P')
     mode=PRINT_CARDS;
+  if(command=='D')
+    mode=DELETE_ALL_CARDS;
 }
 
 boolean checkAllCards()
 {
+  Serial.println(mode);
   boolean match=false;
   int i=0;
-  while((match==false)&&(i<numCards))
+  while((match==false)&&(i<tagIndex))
   {
     Serial.print("checking ");
     Serial.print(i);
@@ -144,9 +189,35 @@ void saveCard(int index)
   int a=0;
   for(a=0;a<14;a++)
   {
-    EEPROM.write(index+a,tagString[a]);    
+    EEPROM.write(CARD_MEMORY_INDEX+index+a,tagString[a]);    
     cards[index][a]=tagString[a];
   }
+  
+  //update the tag indices, too
+  saveTagIndex();
+  #ifdef DEBUG
+    Serial.print("saved new card ");
+    for(a=0;a<14;a++)
+      Serial.print(tagString[a]);
+    Serial.print(" to index ");
+    Serial.println(tagIndex);
+  #endif
+
+}
+
+void deleteAllCards()
+{
+  Serial.println("deleting all cards....");
+  tagIndex=0;
+  saveTagIndex();
+  readCards();
+  Serial.println("done");
+}
+
+void saveTagIndex()
+{
+  EEPROM.write(0,tagIndex/256);
+  EEPROM.write(1,tagIndex%256);
 }
 
 void printCards()
@@ -156,10 +227,10 @@ void printCards()
   Serial.print("you've stored ");
   Serial.print(tagIndex);
   Serial.println(" cards");
-  for(i=0;i<numCards;i++)
+  for(i=0;i<tagIndex;i++)
   {
     Serial.print(i);
-    Serial.print(":  ");
+    Serial.print(",");
     for(j=0;j<14;j++)
       Serial.print(cards[i][j]);
     Serial.println();
