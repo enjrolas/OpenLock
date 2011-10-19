@@ -39,6 +39,7 @@ unsigned long lockTimer;
 char command;
 
 #define UNLOCK_TIME 3000 //time the lock will be open, in milliseconds
+#define COMM_TIMEOUT 500  //time before we decide that a string didn't make it through
 
 #define WAITING_FOR_CARD 0
 #define LOCK_OPEN 1
@@ -46,6 +47,7 @@ char command;
 #define PRINT_CARDS 3
 #define DELETE_ALL_CARDS 4
 #define DELETE_ONE_CARD 5
+#define LOAD_CARD 6
 
 void setup()
 {
@@ -92,9 +94,9 @@ void loop()
   {
     if(waitForCard(500))
     {
-      if(checkAllCards())
+    Serial.println(tagString);
+    if(checkAllCards())
     {
-      Serial.println(tagString);
       mode=LOCK_OPEN;
       lockTimer=millis();
       #ifdef DEBUG
@@ -172,6 +174,11 @@ void loop()
       }
       mode=WAITING_FOR_CARD;
     }
+    if(mode==LOAD_CARD)
+    {
+      loadCard();
+      mode=WAITING_FOR_CARD;        
+    }
 }
 
 boolean waitForCard(int timeout)
@@ -186,13 +193,45 @@ boolean waitForCard(int timeout)
   return rfid.available();
 }
 
+void loadCard()
+{
+      unsigned long timeout=millis();
+      char newCard[14];
+      char a=' ';
+      unsigned char i;
+      for(i=0;i<14;i++)
+        newCard[i]=0;
+      i=0;
+      while((Serial.available()>0)&&(a!='\n')&&(i<14)&&(millis()-timeout<COMM_TIMEOUT))
+      {
+        tagString[i]=Serial.read();
+        a=tagString[i];
+        i++;
+      }
+      if(i>14)  //string was too long
+      {
+        Serial.print("-");  //something's wrong
+      }
+      else if(millis()-timeout>COMM_TIMEOUT)  //took too long
+      {
+        Serial.print("-");  //something's wrong
+      }     
+      else //we got a null-terminated string that's the right length
+      {
+        saveCard(tagIndex);
+        Serial.print("+");  //success!
+      }
+}
+
 void interpretCommand()
 {
   if(command=='L')
     mode=LEARN_NEW_CARD;
+  if(command=='S')
+    mode=LOAD_CARD;
   if(command=='P')
     mode=PRINT_CARDS;
-  if(command=='D')
+  if(command=='Z')
     mode=DELETE_ALL_CARDS;
    if(command=='R')
      mode=DELETE_ONE_CARD;
@@ -200,7 +239,6 @@ void interpretCommand()
 
 boolean checkAllCards()
 {
-  Serial.println(mode);
   boolean match=false;
   int i=0;
   while((match==false)&&(i<tagIndex))
@@ -281,11 +319,18 @@ void deleteOneCard(int index)
 
 void deleteAllCards()
 {
+  #ifdef DEBUG
   Serial.println("deleting all cards....");
+  #endif
+  
   tagIndex=0;
   saveTagIndex();
   readCards();
+  
+  #ifdef DEBUG
   Serial.println("done");
+  #endif
+  
 }
 
 void saveTagIndex()
