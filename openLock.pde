@@ -27,7 +27,7 @@
 #define CARD_MEMORY_INDEX 2
 
 char cards[100][7];
-unsigned char buffer[5];
+char printableString[14];
 
 SL018 rfid;
 int tagIndex=0;
@@ -276,14 +276,15 @@ void saveCard(int index)
   int a;
   for(a=0;a<7;a++)
   {
-    EEPROM.write(CARD_MEMORY_INDEX+index*7+a,tagString[a]);    
-    cards[index][a]=tagString[a];
+    convertTagString();
+    EEPROM.write(CARD_MEMORY_INDEX+index*7+a,hexTagString[a]);    
+    cards[index][a]=hexTagString[a];
   }
   
   #ifdef DEBUG
     Serial.print("saved new card ");
     for(a=0;a<7;a++)
-      Serial.print(tagString[a]);
+      Serial.print(hexTagString[a]);
     Serial.print(" to index ");
     Serial.println(tagIndex);
   #endif
@@ -352,7 +353,7 @@ void printCards()
     Serial.print(i);
     Serial.print(",");
     for(j=0;j<7;j++)
-      Serial.print(cards[i][j]);
+      Serial.print(convertBinaryToString(cards[i][j]));
     Serial.println();
   }
 }
@@ -374,3 +375,29 @@ void convertTagString()
   for(a=0;a<7;a++)
     hexTagString[a]=16*hexCharToNum(tagString[a*2])+hexCharToNum(tagString[a*2+1]);
 }
+
+char * convertBinaryToString(unsigned char a)
+{
+  char hexString[2];  
+  hexString[0]=a>>4;
+  if(hexString[0]<10)
+    hexString[0]+=48;
+  else
+    hexString[0]+=55;
+  hexString[1]=a & 0b00001111;
+  if(hexString[1]<10)
+    hexString[1]+=48;
+  else
+    hexString[1]+=55;
+  Serial.print(hexString);
+  return hexString;
+}
+
+//converts the ASCII tag string to a binary string for compressed storage/comparison
+void createPrintableString()
+{
+  unsigned char a, num;
+  for(a=0;a<7;a++)
+    printableString[a*2]=hexTagString[a]/16;
+    printableString[a*2+1]=hexTagString[a]%16;
+  }
