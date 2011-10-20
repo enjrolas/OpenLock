@@ -18,21 +18,21 @@
 #include <SL018.h>
 
 
-//  #define DEBUG 1     //uncomment this line if you want to play with the arduino in debug mode,
+  #define DEBUG 1     //uncomment this line if you want to play with the arduino in debug mode,
                         //but it'll BREAK the system if you try to use it with the computer-side
                         //software in debug mode
 
 
-#define NUM_CARDS 50  //total number of authorized cards we'll store
+#define NUM_CARDS 100  //total number of authorized cards we'll store
 #define CARD_MEMORY_INDEX 2
 
-char cards[50][14];
+char cards[100][7];
 unsigned char buffer[5];
 
 SL018 rfid;
 int tagIndex=0;
 char * tagString;
-
+unsigned char hexTagString[7];
 unsigned char mode;
 unsigned long lockTimer;
 
@@ -79,8 +79,8 @@ void readCards()
   int i,j;
   tagIndex=EEPROM.read(0)*256+EEPROM.read(1);
   for(i=0;i<tagIndex,i<NUM_CARDS;i++)
-    for(j=0;j<14;j++)      
-      cards[i][j]=EEPROM.read(CARD_MEMORY_INDEX+i*14+j);
+    for(j=0;j<7;j++)
+      cards[i][j]=EEPROM.read(CARD_MEMORY_INDEX+i*7+j);
 }
 
 void loop()
@@ -196,12 +196,8 @@ boolean waitForCard(int timeout)
 void loadCard()
 {
       unsigned long timeout=millis();
-      char newCard[14];
       char a=' ';
-      unsigned char i;
-      for(i=0;i<14;i++)
-        newCard[i]=0;
-      i=0;
+      unsigned char i=0;
       while((Serial.available()>0)&&(a!='\n')&&(i<14)&&(millis()-timeout<COMM_TIMEOUT))
       {
         tagString[i]=Serial.read();
@@ -218,6 +214,7 @@ void loadCard()
       }     
       else //we got a null-terminated string that's the right length
       {
+        convertTagString();
         saveCard(tagIndex);
         Serial.print("+");  //success!
       }
@@ -239,6 +236,7 @@ void interpretCommand()
 
 boolean checkAllCards()
 {
+  convertTagString();
   boolean match=false;
   int i=0;
   while((match==false)&&(i<tagIndex))
@@ -276,15 +274,15 @@ boolean checkCard(int cardIndex)
 void saveCard(int index)
 {
   int a;
-  for(a=0;a<14;a++)
+  for(a=0;a<7;a++)
   {
-    EEPROM.write(CARD_MEMORY_INDEX+index*14+a,tagString[a]);    
+    EEPROM.write(CARD_MEMORY_INDEX+index*7+a,tagString[a]);    
     cards[index][a]=tagString[a];
   }
   
   #ifdef DEBUG
     Serial.print("saved new card ");
-    for(a=0;a<14;a++)
+    for(a=0;a<7;a++)
       Serial.print(tagString[a]);
     Serial.print(" to index ");
     Serial.println(tagIndex);
@@ -304,10 +302,10 @@ void deleteOneCard(int index)
   int i;
   for(i=index;i<tagIndex-1;i++)
   {
-    for(int j=0;j<14;j++)
+    for(int j=0;j<7;j++)
     {
       cards[i][j]=cards[i+1][j];
-      EEPROM.write(CARD_MEMORY_INDEX+i*14+j,cards[i][j]);
+      EEPROM.write(CARD_MEMORY_INDEX+i*7+j,cards[i][j]);
     }    
   }
   tagIndex--;
@@ -353,8 +351,26 @@ void printCards()
   {
     Serial.print(i);
     Serial.print(",");
-    for(j=0;j<14;j++)
+    for(j=0;j<7;j++)
       Serial.print(cards[i][j]);
     Serial.println();
   }
+}
+
+unsigned char hexCharToNum(char a)
+{
+  unsigned char num;
+  if((a>=48)&&(a<=57))
+    num=a-48;
+  else if((a>=65)&&(a<=70))
+    num=a-55;
+  return num; 
+}
+
+//converts the ASCII tag string to a binary string for compressed storage/comparison
+void convertTagString()
+{
+  unsigned char a, num;
+  for(a=0;a<7;a++)
+    hexTagString[a]=16*hexCharToNum(tagString[a*2])+hexCharToNum(tagString[a*2+1]);
 }
