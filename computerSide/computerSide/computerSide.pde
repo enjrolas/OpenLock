@@ -157,7 +157,7 @@ if (returnVal == JFileChooser.APPROVE_OPTION) {
     for(int j=0;j<loadedCards[i].length();j++)
       myPort.write(loadedCards[i].charAt(j));
     myPort.write('\n');
-    delay(50);
+    delay(1000);
       if(myPort.available()>0)
         println((char)myPort.read());
  }
