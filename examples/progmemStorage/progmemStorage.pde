@@ -1,3 +1,5 @@
+#include <Flash.h>
+
 //  Copyright (C) 2010 Georg Kaindl
 //  http://gkaindl.com
 //
@@ -22,10 +24,31 @@
 //  mode.
 #include <Wire.h>
 #include <SL018.h>
+#include <EEPROM.h>
+
+#define NUM_CARDS 50  //total number of authorized cards we'll store
+#define CARD_MEMORY_INDEX 2
 
 SL018 rfid;
-
 char * tagString;
+int tagIndex=0;
+
+unsigned char mode;
+unsigned long lockTimer;
+
+char command;
+
+#define UNLOCK_TIME 3000 //time the lock will be open, in milliseconds
+#define COMM_TIMEOUT 500  //time before we decide that a string didn't make it through
+
+#define WAITING_FOR_CARD 0
+#define LOCK_OPEN 1
+#define LEARN_NEW_CARD 2
+#define PRINT_CARDS 3
+#define DELETE_ALL_CARDS 4
+#define DELETE_ONE_CARD 5
+#define LOAD_CARD 6
+
 
 
 #if defined(ARDUINO) && ARDUINO > 18
@@ -40,9 +63,78 @@ byte server[] = { 97, 107, 134, 162  }; // www.artiswrong.com
 const char* ip_to_str(const uint8_t*);
 Client client(server, 80);
 
+FLASH_TABLE(char, cards, 14, {0,0,0,0,0,0,0,0,0,0,0,0,0,0},
+    {0,0,0,0,0,0,0,0,0,0,0,0,0,0},
+    {0,0,0,0,0,0,0,0,0,0,0,0,0,0},
+    {0,0,0,0,0,0,0,0,0,0,0,0,0,0},
+    {0,0,0,0,0,0,0,0,0,0,0,0,0,0},
+    {0,0,0,0,0,0,0,0,0,0,0,0,0,0},
+    {0,0,0,0,0,0,0,0,0,0,0,0,0,0},
+    {0,0,0,0,0,0,0,0,0,0,0,0,0,0},
+    {0,0,0,0,0,0,0,0,0,0,0,0,0,0},
+    {0,0,0,0,0,0,0,0,0,0,0,0,0,0},
+    {0,0,0,0,0,0,0,0,0,0,0,0,0,0},
+    {0,0,0,0,0,0,0,0,0,0,0,0,0,0},
+    {0,0,0,0,0,0,0,0,0,0,0,0,0,0},
+    {0,0,0,0,0,0,0,0,0,0,0,0,0,0},
+    {0,0,0,0,0,0,0,0,0,0,0,0,0,0},
+    {0,0,0,0,0,0,0,0,0,0,0,0,0,0},
+    {0,0,0,0,0,0,0,0,0,0,0,0,0,0},
+    {0,0,0,0,0,0,0,0,0,0,0,0,0,0},
+    {0,0,0,0,0,0,0,0,0,0,0,0,0,0},
+    {0,0,0,0,0,0,0,0,0,0,0,0,0,0},
+    {0,0,0,0,0,0,0,0,0,0,0,0,0,0},
+    {0,0,0,0,0,0,0,0,0,0,0,0,0,0},
+    {0,0,0,0,0,0,0,0,0,0,0,0,0,0},
+    {0,0,0,0,0,0,0,0,0,0,0,0,0,0},
+    {0,0,0,0,0,0,0,0,0,0,0,0,0,0},
+    {0,0,0,0,0,0,0,0,0,0,0,0,0,0},
+    {0,0,0,0,0,0,0,0,0,0,0,0,0,0},
+    {0,0,0,0,0,0,0,0,0,0,0,0,0,0},
+    {0,0,0,0,0,0,0,0,0,0,0,0,0,0},
+    {0,0,0,0,0,0,0,0,0,0,0,0,0,0},
+    {0,0,0,0,0,0,0,0,0,0,0,0,0,0},
+    {0,0,0,0,0,0,0,0,0,0,0,0,0,0},
+    {0,0,0,0,0,0,0,0,0,0,0,0,0,0},
+    {0,0,0,0,0,0,0,0,0,0,0,0,0,0},
+    {0,0,0,0,0,0,0,0,0,0,0,0,0,0},
+    {0,0,0,0,0,0,0,0,0,0,0,0,0,0},
+    {0,0,0,0,0,0,0,0,0,0,0,0,0,0},
+    {0,0,0,0,0,0,0,0,0,0,0,0,0,0},
+    {0,0,0,0,0,0,0,0,0,0,0,0,0,0},
+    {0,0,0,0,0,0,0,0,0,0,0,0,0,0},
+    {0,0,0,0,0,0,0,0,0,0,0,0,0,0},
+    {0,0,0,0,0,0,0,0,0,0,0,0,0,0},
+    {0,0,0,0,0,0,0,0,0,0,0,0,0,0},
+    {0,0,0,0,0,0,0,0,0,0,0,0,0,0},
+    {0,0,0,0,0,0,0,0,0,0,0,0,0,0},
+    {0,0,0,0,0,0,0,0,0,0,0,0,0,0},
+    {0,0,0,0,0,0,0,0,0,0,0,0,0,0},
+    {0,0,0,0,0,0,0,0,0,0,0,0,0,0},
+    {0,0,0,0,0,0,0,0,0,0,0,0,0,0},
+    {0,0,0,0,0,0,0,0,0,0,0,0,0,0});
+
 void setup()
 {
   Serial.begin(115200);
+  pinMode(2,OUTPUT);
+  #ifdef DEBUG
+    Serial.println("reading cards from EEPROM...");
+  #endif
+  readCards();
+
+  
+  #ifdef DEBUG
+  Serial.println("done!");
+  #endif
+
+  mode=WAITING_FOR_CARD;
+
+  #ifdef DEBUG
+  Serial.println("listening for cards...");
+  #endif
+  
+  Serial.print("+");  //all systems go!
   
   // Initiate a DHCP session. The argument is the MAC (hardware) address that
   // you want your Ethernet shield to use. The second argument enables polling
@@ -146,6 +238,15 @@ boolean waitForCard(int timeout)
   return rfid.available();
 }
 
+void readCards()
+{
+  int i,j;
+  
+  tagIndex=EEPROM.read(0)*256+EEPROM.read(1);
+  for(i=0;i<tagIndex,i<NUM_CARDS;i++)
+    for(j=0;j<14;j++)      
+      cards[i][j]=EEPROM.read(CARD_MEMORY_INDEX+i*14+j);
+}
 
 
 // Just a utility function to nicely format an IP address.
@@ -155,3 +256,5 @@ const char* ip_to_str(const uint8_t* ipAddr)
   sprintf(buf, "%d.%d.%d.%d\0", ipAddr[0], ipAddr[1], ipAddr[2], ipAddr[3]);
   return buf;
 }
+
+
